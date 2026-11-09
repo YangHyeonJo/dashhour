@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 차량용 앱. 폰 에뮬레이터에서도 데모 모드로 실행할 수 있도록 required=false -->
+    <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
+
+    <!-- Vehicle SDK 권한. 기어(Gear 도메인)는 CAR_DRIVE 필요 (확인됨). 나머지는 차속 등 확장용 -->
+    <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
+    <uses-permission android:name="pleos.car.permission.CAR_POWERTRAIN" />
+    <uses-permission android:name="pleos.car.permission.CAR_SPEED" />
+    <uses-permission android:name="pleos.car.permission.CAR_INFO" />
+
+    <!-- 웹 폰트 로드용. 없으면 기본 한글 폰트로 표시됨 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Android 11+ 패키지 가시성: TTS 엔진을 찾으려면 선언 필요 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <!-- 주행 중에도 화면이 차단되지 않도록 운전자 주의 분산 최적화 선언 (AAOS) -->
+            <meta-data android:name="distractionOptimized" android:value="true" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

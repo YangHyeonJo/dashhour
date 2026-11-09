@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DASHHOUR 프로토타입</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: 차량 디스플레이(1600×720, 비율 유지 축소) + 오른쪽 Virtual Console 대용 패널, 아래 상태 전이 로그. 차량 화면 맥락이라 단일 다크 테마. */
+:root{
+  color-scheme: dark;
+  --bg:#0A0E15; --panel:#111827; --panel2:#172033; --line:#26324A; --fg:#E6EBF3; --muted:#93A0B4;
+  --accent:#4C8DFF; --accent-soft:#15233D; --warn:#F2A541; --ok:#4CC38A; --bad:#F07167; --ink:#0A0F18;
+  --d-bg:#0E1420; --d-map:#121A28; --d-side:#151D2C; --d-card:#1C2740; --d-card2:#172033; --d-road:#1E2A3E; --d-road2:#19243A;
+  --font:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--font);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:1500px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+header.top h1{margin:0;font-size:22px;letter-spacing:.02em}
+header.top p{margin:4px 0 0;color:var(--muted);font-size:13px;line-height:1.5;max-width:70ch}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--muted);background:var(--panel)}
+.pill b{color:var(--fg);font-family:var(--mono);font-weight:600}
+.main{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.stagecol{flex:999 1 640px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.stage{position:relative;width:100%;aspect-ratio:1600/720;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--d-bg)}
+.disp{position:absolute;left:0;top:0;width:1600px;height:720px;transform-origin:0 0}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.6}
+.hint b{color:var(--fg)}
+.console{flex:1 1 330px;max-width:100%;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:16px}
+.console h2{margin:0;font-size:13px;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.sec{display:flex;flex-direction:column;gap:8px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cbtn{font:inherit;font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer;min-height:34px}
+.cbtn:hover{border-color:#3A4A66}
+.cbtn[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:#BFD5FF}
+.cbtn.primary{background:var(--accent);border-color:var(--accent);color:var(--ink);font-weight:700}
+.cbtn:focus-visible,.dbtn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.gear{font-family:var(--mono);font-weight:600;font-size:15px;min-width:44px}
+.readout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.ro{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.ro span{font-size:11px;color:var(--muted)}
+.ro b{font-family:var(--mono);font-size:16px;font-variant-numeric:tabular-nums}
+.statebox{display:flex;justify-content:space-between;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.statebox b{font-family:var(--mono);color:#BFD5FF;font-size:15px}
+.statebox span{font-size:12px;color:var(--muted)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.lbl{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}
+.lbl b{font-family:var(--mono);color:var(--fg)}
+.toggle{display:flex;align-items:center;gap:8px;font-size:13px}
+.logbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.logbox h2{margin:0;font-size:13px;letter-spacing:.06em;color:var(--muted)}
+.log{max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.log div{display:flex;gap:10px;line-height:1.5}
+.log time{font-family:var(--mono);color:var(--muted);flex:none}
+.log b{font-family:var(--mono);color:#BFD5FF;font-weight:600}
+.log em{font-style:normal;color:var(--muted)}
+
+/* ---------- 차량 디스플레이 ---------- */
+.disp{background:var(--d-bg);color:var(--fg);display:flex;font-family:var(--font)}
+.rail{width:96px;background:#0A0F18;display:flex;flex-direction:column;align-items:center;gap:18px;padding-top:28px;box-sizing:border-box;flex:none}
+.rbtn{width:56px;height:56px;border-radius:14px;border:2px solid transparent;background:#1B2638;display:flex;align-items:center;justify-content:center;color:#C9D3E3;font:700 18px var(--font);cursor:pointer}
+.rbtn.on{border-color:var(--accent);background:var(--accent-soft);color:#7FB0FF}
+.rbtn svg{width:26px;height:26px}
+.pane{flex:1;box-sizing:border-box;min-width:0;position:relative}
+.side{background:var(--d-side);box-sizing:border-box;display:flex;flex-direction:column;flex:none}
+.kicker{font-size:15px;font-weight:700;color:#7FB0FF;letter-spacing:.04em}
+.dh1{margin:0;font-size:30px;font-weight:700}
+.dmuted{color:var(--muted)}
+.dcard{background:var(--d-card);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:8px}
+.tlabel{font-size:14px;font-weight:700;color:var(--warn)}
+.dbtn{height:60px;border-radius:14px;border:1px solid #3A4A66;background:transparent;color:var(--fg);font:500 19px var(--font);cursor:pointer;flex:1;padding:0 16px}
+.dbtn.pri{background:var(--accent);border-color:var(--accent);color:var(--ink);font-weight:700}
+.dbtn:disabled{opacity:.35;cursor:not-allowed}
+.dchip{display:inline-flex;border-radius:999px;padding:6px 14px;font-size:15px;background:#22365A;color:#A9CAFF}
+.dchip.g{background:#1E3A2E;color:#7FD8AE}
+.badge{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:6px 14px;font-size:15px;font-weight:700}
+.sev-ok{background:#1E3A2E;color:#7FD8AE}.sev-mid{background:#3A2E14;color:#F6C27A}.sev-bad{background:#3F1F1D;color:#F6A39C}
+.big{font-size:56px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden}
+.legend{display:flex;gap:22px;font-size:16px;color:#C9D3E3;flex-wrap:wrap}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-1px}
+.speaker{width:60px;height:60px;border-radius:30px;background:var(--accent);display:flex;align-items:center;justify-content:center;flex:none}
+.floatbox{position:absolute;background:var(--d-card2);border-radius:16px;padding:16px 20px;display:flex;flex-direction:column;gap:4px}
+.statuspill{position:absolute;right:28px;top:28px;background:var(--d-card2);border-radius:999px;padding:10px 18px;font-size:15px;color:#C9D3E3;display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:5px;background:var(--ok)}
+.subtitle{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);width:900px;background:var(--d-card2);border:1px solid #2E3D58;border-radius:22px;padding:22px 26px;box-sizing:border-box;display:flex;align-items:center;gap:22px}
+.zones{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:12px;flex:1}
+.zone{background:#1A2436;border-radius:12px;display:flex;flex-direction:column;justify-content:space-between;padding:16px}
+.zone b{font-size:20px}.zone span{font-size:15px;color:var(--muted)}
+.zone.rec{background:var(--accent-soft);border:3px solid var(--accent)}.zone.rec b{color:#7FB0FF}.zone.rec span{color:#C9D3E3}
+.zone.lm{background:#2A2416;border:1px dashed var(--warn);align-items:center;justify-content:center}.zone.lm b{color:var(--warn);font-size:17px}
+.flrow{display:flex;justify-content:space-between;font-size:17px;padding:10px 0;border-bottom:1px solid #26324A}
+.home-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.placecard{background:var(--d-card2);border:1px solid #26324A;border-radius:18px;padding:22px;display:flex;flex-direction:column;gap:12px;text-align:left;color:var(--fg);font-family:var(--font);cursor:pointer}
+.placecard:hover{border-color:var(--accent)}
+.overlay{position:absolute;inset:0;background:rgba(5,8,14,.72);display:flex;align-items:center;justify-content:center;z-index:5}
+.sheet{width:880px;background:var(--d-side);border:1px solid #2E3D58;border-radius:22px;padding:30px 34px;display:flex;flex-direction:column;gap:20px}
+.optrow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.optrow>span{width:170px;font-size:17px;color:#C9D3E3}
+.seg{height:48px;padding:0 18px;border-radius:12px;border:1px solid #3A4A66;background:transparent;color:var(--fg);font:500 17px var(--font);cursor:pointer}
+.seg[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:#BFD5FF}
+.mic{width:96px;height:96px;border-radius:48px;border:6px solid #22365A;background:var(--accent);display:flex;align-items:center;justify-content:center;flex:none}
+.listening .mic{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 14px rgba(76,141,255,.18)}}
+.ex{display:flex;flex-direction:column;gap:10px}
+.exbtn{text-align:left;background:var(--d-card);border:1px solid #2E3D58;border-radius:14px;color:var(--fg);font:500 19px var(--font);padding:14px 18px;cursor:pointer}
+.exbtn:hover{border-color:var(--accent)}
+.tin{display:flex;gap:10px}
+.tin input{flex:1;height:54px;border-radius:12px;border:1px solid #3A4A66;background:var(--d-card2);color:var(--fg);font:500 18px var(--font);padding:0 16px}
+/* 앱(웹뷰) 모드: 디스플레이를 화면 전체에 맞추고 콘솔은 '데모' 버튼으로 여닫음 */
+body.app{padding:0;margin:0;overflow:hidden;height:100vh}
+body.app .wrap{max-width:none;gap:0;height:100vh}
+body.app header.top,body.app .logbox{display:none}
+body.app .main{display:block;height:100vh}
+body.app .stagecol{height:100vh}
+body.app .stage{width:100vw;height:100vh;aspect-ratio:auto;border:0;border-radius:0}
+body.app .console{position:fixed;top:12px;right:12px;bottom:12px;width:340px;overflow:auto;z-index:20;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+body.app .console[data-closed="true"]{display:none}
+#demoToggle{position:fixed;right:12px;bottom:12px;z-index:21;opacity:.55}
+#demoToggle:hover{opacity:1}
+@media (prefers-reduced-motion: reduce){.listening .mic{animation:none}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>DASHHOUR</h1>
+    <span class="pill">시각 <b data-bind="clock">--:--</b></span>
+  </header>
+
+  <div class="main">
+    <div class="stagecol">
+      <div class="stage" id="stage"><div class="disp" id="disp"></div></div>
+    </div>
+
+    <aside class="console" aria-label="시연 콘솔">
+      <div class="sec">
+        <h2>시나리오</h2>
+        <div class="row" id="scnRow"></div>
+      </div>
+      <div class="sec">
+        <h2>재생</h2>
+        <div class="row">
+          <button class="cbtn primary" id="playBtn" type="button">재생</button>
+          <button class="cbtn" id="stepBtn" type="button">다음 단계</button>
+        </div>
+        <div class="row" id="rateRow"></div>
+      </div>
+      <div class="sec">
+        <h2>차량 신호</h2>
+        <div class="row" id="gearRow"></div>
+        <label class="lbl" for="spd">차속 <b><span data-bind="speed">0</span> km/h</b></label>
+        <input type="range" id="spd" min="0" max="80" step="1" value="0">
+        <div class="readout">
+          <div class="ro"><span>남은 거리</span><b><span data-bind="dist">-</span>km</b></div>
+          <div class="ro"><span>기어</span><b data-bind="gear">P</b></div>
+          <div class="ro"><span>시나리오 시간</span><b data-bind="simt">0s</b></div>
+        </div>
+        <div class="statebox"><b data-bind="state">IDLE</b><span data-bind="hold">대기 중</span></div>
+      </div>
+      <div class="sec appOnly" hidden>
+        <h2>기어 신호 출처</h2>
+        <div class="row"><button class="cbtn" type="button" id="srcScn">시나리오</button><button class="cbtn" type="button" id="srcCar">차량 (Pleos)</button></div>
+        <span class="hint" id="vehStatus" style="font-size:12px">차량 연결 상태 확인 중</span>
+      </div>
+      <div class="sec">
+        <h2>옵션</h2>
+        <label class="toggle"><input type="checkbox" id="voice" checked> 음성 안내</label>
+        <div class="row"><button class="cbtn" type="button" id="voiceTest">음성 테스트</button><span class="hint" id="voiceStatus" style="font-size:12px"></span></div>
+        <button class="cbtn" type="button" id="openSet">설정</button>
+      </div>
+    </aside>
+  </div>
+
+  <button class="cbtn appOnly" id="demoToggle" type="button" hidden>데모</button>
+  <section class="logbox" aria-label="상태 전이 로그" hidden>
+    <h2>상태 전이 로그 (최신순)</h2>
+    <div class="log" id="log"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+// ===================== 샘플 데이터 (개발 기획서 8장) =====================
+const PLACES = {
+  ts:{id:'ts',scn:'A',name:'영등포 타임스퀘어',short:'타임스퀘어',dayLabel:'토요일',weekend:true,start:14*60+30,navMin:30,distKm:21.4,stayMin:135,
+    floorTitle:'타임스퀘어 지하 2층',zoneLabel:'B2 A3',
+    zones:[['A1','엘리베이터까지 90m'],['A2','엘리베이터까지 60m'],['A3','엘리베이터 바로 옆','rec'],['엘리베이터 · 마트 입구','','lm'],['B1','엘리베이터까지 110m'],['B2','기둥 간격 좁음'],['B3','엘리베이터까지 50m'],['B4','진입로 옆']],
+    floors:[['B1','거의 만차','bad'],['B2 (현재 층)','조금 여유','mid'],['B3','여유','ok']],
+    exits:[['정문 출구',15],['후문 출구',5]],pay:'사전정산기 · 엘리베이터 옆',companion:'stroller',
+    examples:['B3은 비어 있는데 엘리베이터가 멀어요.','토요일 3시엔 정문 진입 대기가 30분 넘어요.','나갈 때는 후문 출구가 훨씬 빨라요.'],alts:[]},
+  ev:{id:'ev',scn:'B',name:'에버랜드',short:'에버랜드',dayLabel:'어린이날',weekend:true,start:10*60+40,navMin:55,distKm:48,stayMin:300,
+    floorTitle:'에버랜드 주차장',zoneLabel:'1주차장 앞쪽',
+    zones:[['1주차장 앞','정문까지 도보 4분','rec'],['1주차장 뒤','셔틀 정류장 옆'],['2주차장','정문까지 도보 9분'],['정문 · 매표소','','lm'],['3주차장','셔틀 이용'],['4주차장','셔틀 이용'],['장애인 구역','정문 바로 앞'],['버스 구역','일반 차량 불가']],
+    floors:[['1주차장','거의 만차','bad'],['2주차장','조금 여유','mid'],['3주차장','여유','ok']],
+    exits:[['정문 방향',25],['셔틀 방향',10]],pay:'출구 무인 정산',companion:'stroller',
+    examples:['1주차장은 10시 전에 다 차요.','유모차면 1주차장 앞줄이 정문이랑 가까워요.','폐장 직전엔 출구가 많이 막혀요.'],
+    alts:[['[근처 수목원]',38,10,50],['[근처 아울렛]',21,15,45]]},
+  hp:{id:'hp',scn:'C',name:'[대학병원] 본관',short:'대학병원',dayLabel:'화요일',weekend:false,start:8*60+5,navMin:25,distKm:15.2,stayMin:150,
+    floorTitle:'병원 별관 주차장 B1',zoneLabel:'별관 B1',
+    zones:[['본관 정문','하차 구역 · 정차 3분','rec'],['별관 B1','연결통로 옆'],['별관 B2','연결통로까지 80m'],['연결통로 · 본관 외래','','lm'],['본관 B1','오전 만차 잦음'],['본관 B2','오전 만차 잦음'],['장애인 구역','본관 정문 옆'],['응급실 구역','일반 주차 불가']],
+    floors:[['본관 지하','거의 만차 · 대기 20분','bad'],['별관 B1','여유 · 대기 5분','ok']],
+    exits:[['본관 정문',12],['별관 후문',4]],pay:'원무과 차량번호 등록 시 할인',companion:'mobility',
+    examples:['외래 끝나는 11시엔 별관 후문 출구로 나가세요.','별관 B1에서 본관까지 연결통로로 3분이에요.','오전 9시 전엔 본관 지하도 자리가 있어요.'],alts:[]}
+};
+// 장소 × 평일/주말 × 시간대(0~23시) 진입 대기 중앙값(분)
+const WAIT = {
+  ts:{we:[0,0,0,0,0,0,0,0,0,0,2,4,8,14,22,25,24,18,15,12,8,4,0,0], wd:[0,0,0,0,0,0,0,0,0,0,1,2,4,3,3,4,5,6,8,7,4,2,0,0]},
+  ev:{we:[0,0,0,0,0,0,0,0,10,30,50,65,60,45,30,20,12,8,5,3,0,0,0,0], wd:[0,0,0,0,0,0,0,0,2,8,15,20,15,10,8,5,3,2,0,0,0,0,0,0]},
+  hp:{we:[0,0,0,0,0,0,0,0,2,4,5,4,2,1,1,0,0,0,0,0,0,0,0,0], wd:[0,0,0,0,0,0,0,5,20,25,18,12,10,14,12,8,5,2,0,0,0,0,0,0]}
+};
+const TYPE_LABEL={entry:'진입 경로',time:'시간대',floor:'층·구역',exit:'출차',car:'차종·동반자',alt:'주변 대안'};
+let TIPS = [
+  {p:'ts',type:'time',text:'11시 전에 도착하면 진입 대기가 거의 없어요. 오후 2~4시가 가장 붐벼요.',help:214,age:12,days:'we'},
+  {p:'ts',type:'entry',text:'정문 진입로 대기가 길어요. 후면 진입로가 평균 10분 빠릅니다.',help:168,age:5,days:'we',hours:[12,20]},
+  {p:'ts',type:'entry',text:'평일엔 정문 진입도 바로 들어가져요.',help:40,age:20,days:'wd'},
+  {p:'ts',type:'floor',text:'유모차가 있다면 B2 A3 구역이 엘리베이터와 가장 가까워요.',help:132,age:3,tags:['stroller']},
+  {p:'ts',type:'floor',text:'엘리베이터는 B2 A3 구역이 가장 가까워요.',help:120,age:10},
+  {p:'ts',type:'floor',text:'B4는 비어 있지만 엘리베이터 대기가 길어요.',help:60,age:40},
+  {p:'ts',type:'car',text:'대형 SUV는 B1 기둥 간격이 좁아 B2가 편해요.',help:75,age:15,tags:['suv']},
+  {p:'ts',type:'exit',text:'저녁엔 정문 출구가 막혀요. 후문 출구를 이용하세요.',help:97,age:7,hours:[16,23]},
+  {p:'ts',type:'exit',text:'사전정산기는 엘리베이터 옆에 있어요.',help:50,age:30},
+  {p:'ts',type:'alt',text:'만차일 땐 인근 공영주차장에 대고 5분 걷는 게 더 빨라요.',help:45,age:25},
+  {p:'ev',type:'time',text:'연휴엔 9시 전에 도착하지 않으면 진입 대기 1시간을 각오하세요.',help:301,age:8,days:'we'},
+  {p:'ev',type:'entry',text:'정문 쪽 진입로보다 셔틀 연계 주차장 진입로가 훨씬 빨라요.',help:140,age:14},
+  {p:'ev',type:'floor',text:'유모차가 있다면 1주차장 앞쪽 줄이 정문과 가까워요.',help:88,age:9,tags:['stroller']},
+  {p:'ev',type:'floor',text:'1주차장 뒤쪽 블록은 셔틀 정류장과 가까워요.',help:70,age:20},
+  {p:'ev',type:'exit',text:'폐장 30분 전에 나오면 출차 정체를 피할 수 있어요.',help:156,age:6},
+  {p:'hp',type:'time',text:'8시 반~9시 반은 외래 차량이 몰려요. 9시 예약이면 8시 반 전에 도착하는 게 안전해요.',help:156,age:10,days:'wd'},
+  {p:'hp',type:'entry',text:'본관 지하 진입로는 오전에 줄이 길어요. 별관 진입로로 가세요.',help:92,age:6,days:'wd'},
+  {p:'hp',type:'floor',text:'부모님은 본관 정문에서 먼저 내려드리고, 주차는 별관 B1에 하세요.',help:88,age:7,tags:['mobility']},
+  {p:'hp',type:'floor',text:'별관 B1 연결통로로 본관 외래까지 걸어서 3분이에요.',help:64,age:12},
+  {p:'hp',type:'exit',text:'진료 확인을 받으면 주차 할인이 돼요. 본관 1층 원무과에서 차량번호를 등록하세요.',help:203,age:4},
+  {p:'hp',type:'exit',text:'오전 진료 끝나는 11시대엔 정문 출구가 막혀요. 별관 후문 출구가 빨라요.',help:64,age:9,hours:[10,13]}
+];
+
+// ===================== 상태 =====================
+const S = {
+  place:null, state:'IDLE', simT:0, playing:false, rate:5, manual:false,
+  gear:'P', speed:0, dist:null, voice:true, carType:'sedan', companion:'stroller',
+  points:300, today:{measure:0,tip:0,help:0}, sessions:[
+    {name:'타임스퀘어',date:'지난 토요일',min:31,sample:true},
+    {name:'대학병원',date:'10/28(화)',min:9,sample:true}],
+  lowSince:null, pSince:null, gearPDisp:null, sessionStart:null, lastSession:null,
+  spoken:new Set(), realGear:false, skip:new Set(), subtitle:null, stt:null, altOpen:false, viewHome:false, settings:false, voted:new Set(), script:[]
+};
+
+// ===================== 로직 (기획서 7장) =====================
+const hhmm = m => { m=Math.round(m); const h=Math.floor(m/60)%24, mm=((m%60)+60)%60; return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0'); };
+const waitAt = (p,hour) => WAIT[p.id][p.weekend?'we':'wd'][((hour%24)+24)%24];
+function estimate(p){ // 7.1 진짜 도착시간
+  const arrive = p.start + p.navMin, wait = waitAt(p, Math.floor(arrive/60));
+  return {nav:p.navMin, wait, total:p.navMin+wait, out:arrive+wait};
+}
+function buildScript(p){ // 10.1 시나리오 스크립트 (시간 압축)
+  const e = estimate(p), k2 = p.start + p.navMin - 2, measured = e.wait + 2;
+  return [
+    {t:0,  dist:p.distKm,      speed:0, gear:'P', disp:p.start},
+    {t:5,  dist:p.distKm-0.4,  speed:40,gear:'D', disp:p.start},
+    {t:40, dist:1.0,           speed:30,gear:'D', disp:k2},
+    {t:60, dist:0.2,           speed:10,gear:'D', disp:k2+5},
+    {t:90, dist:0,             speed:0, gear:'P', disp:k2+measured},
+    {t:150,dist:0,             speed:5, gear:'D', disp:k2+measured+p.stayMin}
+  ];
+}
+function interp(key){
+  const sc=S.script; if(!sc.length) return null;
+  if(S.simT<=sc[0].t) return sc[0][key];
+  for(let i=0;i<sc.length-1;i++){ const a=sc[i],b=sc[i+1];
+    if(S.simT<=b.t){ const f=(S.simT-a.t)/(b.t-a.t); return a[key]+(b[key]-a[key])*f; } }
+  return sc[sc.length-1][key];
+}
+const dispNow = () => S.place ? interp('disp') : null;
+function selectTip(p, types){ // 7.3 팁 선택
+  const h = Math.floor((dispNow() ?? p.start)/60), dk = p.weekend?'we':'wd';
+  const cands = TIPS.filter(t => t.p===p.id && types.includes(t.type) && (!t.days || t.days===dk) && (!t.hours || (h>=t.hours[0] && h<t.hours[1])));
+  const mine = [S.companion, S.carType];
+  const score = t => {
+    let s = t.help * Math.pow(0.8, t.age/30);
+    if(t.tags){ s *= t.tags.some(x=>mine.includes(x)) ? 1.2 : 0.5; } // 0.5 감점은 프로토타입에서 추가한 규칙
+    return s;
+  };
+  const fresh = cands.filter(t=>!S.skip.has(t.text));
+  return (fresh.length?fresh:cands).sort((a,b)=>score(b)-score(a))[0] || null;
+}
+function classify(text){ // 7.4 (출차를 진입 경로보다 먼저 검사하도록 순서 조정)
+  const rules=[['floor',/B[1-5]|층|구역|엘리베이터|기둥/],['exit',/출구|출차|정산|나갈/],['entry',/진입|정문|후문|좌회전|우회전/],
+    ['time',/\d+시|오전|오후|저녁|주말|평일|전에|이후/],['car',/SUV|대형|전기차|충전|유모차|휠체어/],['alt',/만차|공영|근처|대신/]];
+  for(const [t,re] of rules) if(re.test(text)) return t;
+  return 'alt';
+}
+
+// ===================== 상태 머신 (기획서 6장) =====================
+function go(next, reason){
+  const prev=S.state; S.state=next; S.viewHome=false; S.altOpen=false;
+  addLog(prev, next, reason);
+  const p=S.place;
+  if(next==='APPROACHING'){
+    S.sessionStart = dispNow();
+    const tip = selectTip(p,['entry']);
+    if(tip){ showSubtitle(tip); speak(tip.text); }
+  }
+  if(next==='ENTERING'){ S.pSince=null; }
+  if(next==='PARKED'){
+    const start = S.sessionStart ?? dispNow(), end = S.gearPDisp ?? dispNow();
+    const min = Math.max(1, Math.round(end - start));
+    S.lastSession = {name:p.short, date:p.dayLabel, min, hour:Math.floor(end/60), pred:estimate(p).wait};
+    S.sessions.unshift({name:p.short,date:p.dayLabel,min});
+    S.points += 10; S.today.measure += 10;
+    S.stt = {stage:'listening'}; S.playing=false;
+    speak('주차 완료. 한마디 남기실래요?');
+    setTimeout(()=>{ if(S.stt && S.stt.stage==='listening'){ S.stt.stage='fallback'; render(); } }, 2600);
+  }
+  if(next==='EXITING'){
+    const tip = selectTip(p,['exit']); S.exitTip = tip;
+    if(tip) speak(tip.text);
+  }
+  if(next==='IDLE'){ S.playing=false; S.place=null; S.script=[]; S.dist=null; }
+  render();
+}
+function evaluate(){
+  const now=performance.now();
+  switch(S.state){
+    case 'PLANNED': if(S.gear==='D' && S.speed>0) go('DRIVING','기어 D + 차속 감지'); break;
+    case 'DRIVING': if(S.dist!==null && S.dist<=1.0) go('APPROACHING','남은 거리 ≤ 1km · 세션 시작 기록'); break;
+    case 'APPROACHING': {
+      const low = S.dist<=0.2 && S.speed<=15;
+      if(low){ S.lowSince ??= now; if(now-S.lowSince>=3000){ S.lowSince=null; go('ENTERING','200m 이내 + 15km/h 이하 3초'); } }
+      else S.lowSince=null; break; }
+    case 'ENTERING':
+      if(S.dist>0.2){ go('APPROACHING','200m 밖으로 이탈 (예외)'); break; }
+      if(S.gear==='P'){ S.pSince ??= now; if(now-S.pSince>=5000){ S.pSince=null; go('PARKED','기어 P 5초 유지'); } }
+      else S.pSince=null; break;
+    case 'PARKED': if(S.gear==='D'||S.gear==='R') go('EXITING','기어 '+S.gear+' 전환'); break;
+  }
+}
+
+// ===================== 시뮬레이션 =====================
+function loadPlace(id){
+  const p=PLACES[id]; S.place=p; S.script=buildScript(p); S.simT=0; S.playing=false;
+  S.gear='P'; S.speed=0; S.dist=p.distKm; S.companion=p.companion; S.sessionStart=null; S.gearPDisp=null; S.lastSession=null;
+  S.subtitle=null; S.stt=null; S.exitTip=null; S.lowSince=null; S.pSince=null; S.skip.clear(); S.voted.clear();
+  const prev=S.state; S.state='PLANNED'; S.viewHome=false; S.altOpen=false;
+  addLog(prev,'PLANNED','목적지 설정 · '+p.name+' (시나리오 '+p.scn+')');
+  render(); syncConsole();
+}
+function applyKey(k){ if(S.realGear){ S.speed = S.gear==='P' ? 0 : k.speed; return; } S.speed=k.speed; setGear(k.gear,true,k.disp); }
+function setGear(g, fromScript, disp){
+  S.gear=g; if(g==='P'){ S.speed=0; S.gearPDisp = disp ?? dispNow(); }
+  if(!fromScript) addLog(S.state,S.state,'콘솔에서 기어 '+g+' 선택',true);
+  syncConsole();
+}
+function step(){ // 수동: 다음 키프레임으로 이동
+  if(!S.place) return;
+  const k = S.script.find(k=>k.t>S.simT+0.01); if(!k) return;
+  S.simT=k.t; S.dist=k.dist; applyKey(k);
+}
+let last=performance.now();
+setInterval(()=>{
+  const now=performance.now(), dt=(now-last)/1000; last=now;
+  const waitRealP = S.realGear && S.state==='ENTERING' && S.script.length && S.simT>=S.script[4].t; // 실차 모드: 주차장 도착 후 P 대기
+  if(S.playing && S.place && !S.manual && !waitRealP && !(S.state==='ENTERING' && S.gear==='P')){ // P 유지 판정 중에는 시나리오 시계를 멈춤
+    const limit = (S.realGear && (S.state==='APPROACHING'||S.state==='ENTERING')) ? S.script[4].t : S.script[S.script.length-1].t; // 실차 모드는 주차장 도착 지점에서 멈추고 P를 기다림
+    const before=S.simT; S.simT = Math.min(S.simT + dt*S.rate, Math.max(limit, S.simT));
+    S.script.forEach(k=>{ if(k.t>before && k.t<=S.simT) applyKey(k); });
+    S.dist = interp('dist');
+    if(S.simT>=S.script[S.script.length-1].t) S.playing=false;
+  }
+  evaluate();
+  if(S.subtitle && now>S.subtitle.until){ S.subtitle=null; render(); }
+  updateBinds();
+}, 100);
+
+// ===================== 음성 =====================
+const TTS = { ok:'speechSynthesis' in window, voice:null, unlocked:false };
+function pickVoice(){ if(!TTS.ok) return; try{ const vs=speechSynthesis.getVoices(); TTS.voice = vs.find(v=>/^ko/i.test(v.lang||'')) || null; voiceStatus(); }catch(e){} }
+if(TTS.ok){ pickVoice(); try{ speechSynthesis.addEventListener('voiceschanged', pickVoice); }catch(e){} }
+function voiceStatus(){
+  const el=document.getElementById('voiceStatus'); if(!el) return;
+  el.textContent = !TTS.ok ? '이 브라우저는 음성 안내를 지원하지 않아요' : (TTS.voice ? '한국어 음성: '+TTS.voice.name : '한국어 음성을 찾는 중이에요. 없으면 기본 음성으로 읽어요');
+}
+function unlockTTS(){ // 모바일·사파리는 첫 음성이 사용자 터치 안에서 시작돼야 이후 자동 음성도 나옴
+  if(TTS.unlocked || !TTS.ok) return; TTS.unlocked=true;
+  try{ const u=new SpeechSynthesisUtterance(' '); u.volume=0; u.lang='ko-KR'; speechSynthesis.speak(u); }catch(e){}
+}
+document.addEventListener('pointerdown', unlockTTS, {capture:true});
+document.addEventListener('keydown', unlockTTS, {capture:true});
+function speak(t){
+  if(!S.voice) return;
+  try{ if(window.DashNative && DashNative.ttsReady()){ DashNative.speak(t); return; } }catch(e){}
+  if(!TTS.ok) return;
+  try{
+    if(speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(t); u.lang='ko-KR'; u.rate=1.05;
+    if(!TTS.voice) pickVoice(); if(TTS.voice) u.voice=TTS.voice;
+    setTimeout(()=>{ try{ speechSynthesis.resume(); speechSynthesis.speak(u); }catch(e){} }, 80); // cancel 직후 speak가 무시되는 크롬 문제 회피
+  }catch(e){}
+}
+function showSubtitle(tip){ S.subtitle={tip, until:performance.now()+10000}; }
+
+// ===================== 화면 =====================
+const disp=document.getElementById('disp');
+// 논리 화면 크기. 기본 1600×720, 앱에서는 화면 비율에 맞춰 늘어난다(fit 참고).
+let DW=1600, DH=720;
+const ICON={
+  nav:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg>',
+  media:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+  apps:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
+  spk:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0A0F18" stroke-width="2.4" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/><path d="M19 5a10 10 0 010 14"/></svg>',
+  mic:'<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#0A0F18" stroke-width="2.4" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v4"/></svg>',
+  gear:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>'
+};
+const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sev = w => w<=10?'ok':(w<=30?'mid':'bad');
+function rail(on){
+  return `<nav class="rail" aria-label="차량 메뉴">
+    <button class="rbtn ${on==='nav'?'on':''}" type="button" aria-label="내비게이션">${ICON.nav}</button>
+    <button class="rbtn ${on==='dash'?'on':''}" type="button" aria-label="DASHHOUR 홈" data-act="home">D</button>
+    <button class="rbtn" type="button" aria-label="미디어">${ICON.media}</button>
+    <button class="rbtn" type="button" aria-label="앱">${ICON.apps}</button></nav>`;
+}
+function mapSVG(w){
+  const h=DH, y=v=>Math.round(v*h/720);
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="position:absolute;left:0;top:0" aria-hidden="true">
+    <g stroke="var(--d-road)" stroke-width="20" fill="none"><path d="M-20 ${y(580)} L${w+20} ${y(430)}"/><path d="M${w*.28} -20 L${w*.33} ${h+20}"/><path d="M${w*.72} -20 L${w*.68} ${h+20}"/></g>
+    <g stroke="var(--d-road2)" stroke-width="8" fill="none"><path d="M-20 ${y(250)} L${w+20} ${y(290)}"/><path d="M${w*.5} -20 L${w*.52} ${h+20}"/></g>
+    <path id="route" d="M${w*.12} ${y(660)} L${w*.32} ${y(540)} L${w*.5} ${y(470)} L${w*.68} ${y(430)} L${w*.76} ${y(180)}" stroke="var(--accent)" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${w*.76}" cy="${y(180)}" r="16" fill="var(--warn)"/>
+    <circle id="carDot" cx="${w*.12}" cy="${y(660)}" r="15" fill="#E6EBF3" stroke="var(--accent)" stroke-width="6"/></svg>`;
+}
+function tipCard(tip, extra=''){
+  if(!tip) return `<div class="dcard"><span class="dmuted" style="font-size:17px">이 상황에 맞는 팁이 아직 없어요. 주차 후 첫 팁을 남겨 주세요.</span></div>`;
+  return `<div class="dcard"><span class="tlabel">${TYPE_LABEL[tip.type]} 팁 · 도움됨 ${tip.help}</span>
+    <span style="font-size:21px;line-height:1.45">“${esc(tip.text)}”</span>${extra}</div>`;
+}
+
+function scrHome(){
+  const cards = Object.values(PLACES).map(p=>{ const e=estimate(p);
+    return `<button class="placecard" type="button" data-act="pick" data-id="${p.id}">
+      <span class="dmuted" style="font-size:15px">시나리오 ${p.scn} · ${p.dayLabel} ${hhmm(p.start)} 출발 기준</span>
+      <span style="font-size:26px;font-weight:700">${esc(p.name)}</span>
+      <span style="font-size:17px;color:#C9D3E3">도로 ${e.nav}분 · 차에서 내리는 시각 ${hhmm(e.out)}</span>
+      <span class="badge sev-${sev(e.wait)}">진입 대기 약 ${e.wait}분</span></button>`; }).join('');
+  const recent = S.sessions.slice(0,3).map(s=>`<div class="flrow"><span>${esc(s.name)} · ${esc(s.date)}${s.sample?' <span class="dmuted" style="font-size:14px">(예시)</span>':''}</span><span>진입~주차 ${s.min}분</span></div>`).join('');
+  return `${rail('dash')}<div class="pane" style="padding:36px 44px;display:flex;flex-direction:column;gap:24px;background:var(--d-map)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:6px"><span class="kicker">DASHHOUR</span><h1 class="dh1" style="font-size:34px">어디로 가세요?</h1>
+        <span class="dmuted" style="font-size:17px">내비 시간에 주차 진입 대기까지 더해서, 차에서 내리는 시각을 알려드려요</span></div>
+      <div style="display:flex;gap:12px;align-items:center"><span class="badge sev-ok" style="font-size:17px">이번 달 ${S.points}P</span>
+        <button class="rbtn" type="button" aria-label="설정" data-act="settings">${ICON.gear}</button></div>
+    </div>
+    <div class="home-grid">${cards}</div>
+    <div style="display:flex;flex-direction:column;gap:4px;max-width:900px"><span style="font-size:16px;font-weight:700;color:#C9D3E3">최근 기록</span>${recent}</div>
+  </div>`;
+}
+function scrPlanned(){
+  const p=S.place, e=estimate(p), tip=selectTip(p,['time']);
+  const warn = e.wait>=45 ? `<div class="dcard" style="background:#2A2416;border:1px solid var(--warn)"><span style="font-size:17px;font-weight:700;color:var(--warn)">지금 출발하면 주차장 진입 대기 약 ${e.wait}분</span><span style="font-size:16px;color:#C9D3E3">도로 ${e.nav}분보다 주차장 앞에서 더 오래 기다려요</span></div>` : '';
+  let lower;
+  if(S.altOpen){
+    lower = p.alts.length ? `<span style="font-size:16px;font-weight:700;color:#C9D3E3">비슷한 날, 다른 운전자들이 고른 대안</span>` + p.alts.map(a=>`<div class="dcard" style="flex-direction:row;justify-content:space-between;align-items:center;padding:14px 18px"><div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:19px;font-weight:700">${a[0]}</span><span class="dmuted" style="font-size:15px">${a[1]}%가 선택 · 진입 대기 약 ${a[2]}분</span></div><span style="font-size:22px;font-weight:700;color:var(--ok)">${a[3]}분</span></div>`).join('')
+      : `<div class="dcard"><span style="font-size:18px">아직 이 장소의 대안 데이터가 없어요.</span><span class="dmuted" style="font-size:15px">경로를 바꾼 운전자 기록이 쌓이면 보여드려요.</span></div>`;
+  } else lower = tipCard(tip);
+  return `${rail('dash')}<div class="pane" style="background:var(--d-map)">${mapSVG(DW-96-560)}
+      <div class="floatbox" style="left:28px;top:28px"><span class="dmuted" style="font-size:15px">경로 안내 준비</span><span style="font-size:24px;font-weight:700">${p.distKm}km · 도로 ${e.nav}분</span></div></div>
+    <section class="side" style="width:560px;padding:32px 38px;gap:18px" aria-label="진짜 도착시간">
+      <div style="display:flex;flex-direction:column;gap:6px"><span class="kicker">DASHHOUR · 진짜 도착시간</span><h1 class="dh1">${esc(p.name)}</h1><span class="dmuted" style="font-size:16px">${p.dayLabel} ${hhmm(p.start)} 출발 기준</span></div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:baseline;gap:12px"><span class="big">${hhmm(e.out)}</span><span style="font-size:18px;color:#C9D3E3">차에서 내리는 시각 · ${e.total}분</span></div>
+        <div class="bar"><div style="flex:${e.nav};background:var(--accent)"></div><div style="flex:${Math.max(e.wait,1)};background:var(--warn)"></div></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>도로 ${e.nav}분 (내비 ETA)</span><span><i style="background:var(--warn)"></i>주차 진입 약 ${e.wait}분</span></div>
+      </div>
+      ${warn}${lower}
+      <div style="display:flex;gap:12px;margin-top:auto">
+        <button class="dbtn pri" type="button" data-act="depart">그대로 출발</button>
+        <button class="dbtn" type="button" data-act="alt">${S.altOpen?'팁 보기':'대안 보기'}</button></div>
+    </section>`;
+}
+function scrDriving(){
+  const p=S.place, e=estimate(p);
+  const sub = S.subtitle ? `<div class="subtitle"><div class="speaker">${ICON.spk}</div><div style="display:flex;flex-direction:column;gap:6px"><span class="tlabel">${TYPE_LABEL[S.subtitle.tip.type]} 팁 · 도움됨 ${S.subtitle.tip.help}</span><span style="font-size:23px;font-weight:500;line-height:1.4">“${esc(S.subtitle.tip.text)}”</span></div></div>` : '';
+  return `${rail('nav')}<div class="pane" style="background:var(--d-map)">${mapSVG(DW-96)}
+    <div class="floatbox" style="left:28px;top:28px"><span class="dmuted" style="font-size:15px">목적지까지 · ${esc(p.short)}</span><span style="font-size:28px;font-weight:700"><span data-bind="dist">-</span>km</span></div>
+    <div class="floatbox" style="left:28px;top:132px"><span class="dmuted" style="font-size:15px">도착 후 예상</span><span style="font-size:20px;font-weight:700;color:var(--warn)">주차 진입 약 ${e.wait}분</span></div>
+    <div class="statuspill"><span class="dot"></span>주행 중 · DASHHOUR는 음성으로만 안내</div>${sub}</div>`;
+}
+function scrEntering(){
+  const p=S.place, tip=selectTip(p,['floor','car']);
+  const zones=p.zones.map(z=> z[2]==='lm' ? `<div class="zone lm"><b>${esc(z[0])}</b></div>`
+    : `<div class="zone ${z[2]==='rec'?'rec':''}"><b>${esc(z[0])}${z[2]==='rec'?' 추천':''}</b><span>${esc(z[1])}</span></div>`).join('');
+  const floors=p.floors.map((f,i)=>`<div class="flrow" ${i===p.floors.length-1?'style="border:0"':''}><span>${esc(f[0])}</span><span style="color:${f[2]==='bad'?'var(--warn)':f[2]==='ok'?'var(--ok)':'#C9D3E3'}">${esc(f[1])}</span></div>`).join('');
+  const voted = tip && S.voted.has(tip.text);
+  return `${rail('dash')}<div class="pane" style="padding:36px 40px;display:flex;flex-direction:column;gap:18px;background:var(--d-map)">
+      <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;flex-direction:column;gap:4px"><span class="kicker">DASHHOUR · 주차장 진입</span><h1 class="dh1" style="font-size:28px">${esc(p.floorTitle)}</h1></div>
+      <span class="statuspill" style="position:static">저속 주행 · 화면 안내 표시</span></div>
+      <div class="zones">${zones}</div></div>
+    <section class="side" style="width:520px;padding:36px;gap:20px" aria-label="층·구역 팁">
+      ${tipCard(tip, '<span class="dmuted" style="font-size:14px">실제 주차 기록이 있는 운전자의 팁</span>')}
+      <div style="display:flex;flex-direction:column"><span style="font-size:16px;font-weight:700;color:#C9D3E3;margin-bottom:4px">층별 상황 (최근 30분 주차 기록)</span>${floors}</div>
+      <div style="display:flex;gap:12px;margin-top:auto">
+        <button class="dbtn pri" type="button" data-act="vote" data-need-stop ${voted||!tip?'disabled data-locked':''}>${voted?'도움됨 반영됨':'도움됨'}</button>
+        <button class="dbtn" type="button" data-need-stop data-act="nexttip">다른 팁 보기</button></div>
+    </section>`;
+}
+function scrParked(){
+  const p=S.place, ls=S.lastSession||{min:0,pred:0,hour:0}, st=S.stt||{stage:'skipped'};
+  let right='';
+  if(st.stage==='listening'||st.stage==='fallback'){
+    const fb = st.stage==='fallback' ? `<span class="dmuted" style="font-size:16px">말하기 어렵다면 문장을 골라 남길 수 있어요</span>
+      <div class="ex">${p.examples.map((x,i)=>`<button class="exbtn" type="button" data-act="say" data-i="${i}">“${esc(x)}”</button>`).join('')}</div>
+      <form class="tin" data-form="tip"><input id="tipText" aria-label="직접 입력" placeholder="직접 입력해도 돼요" autocomplete="off"><button class="dbtn pri" style="flex:none" type="submit">입력</button></form>` : '';
+    right = `<div class="${st.stage==='listening'?'listening':''}" style="display:flex;align-items:center;gap:22px"><div class="mic">${ICON.mic}</div><div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:30px;font-weight:700">한마디 남기실래요?</span><span class="dmuted" style="font-size:17px">P단에서만 입력할 수 있어요${st.stage==='listening'?' · 듣는 중':''}</span></div></div>${fb}
+      <div style="display:flex;gap:12px;margin-top:auto"><button class="dbtn" type="button" data-act="skip">건너뛰기</button></div>`;
+  } else if(st.stage==='recognized'){
+    const t=st.type, part = ls.hour<12?'오전':(ls.hour<18?'오후':'저녁');
+    right = `<span style="font-size:22px;font-weight:700">이렇게 남길까요?</span>
+      <div class="dcard" style="padding:24px;gap:14px"><span style="font-size:26px;font-weight:500;line-height:1.45">“${esc(st.text)}”</span>
+      <div style="display:flex;gap:10px;flex-wrap:wrap"><span class="dchip">자동 분류 · ${TYPE_LABEL[t]}</span><span class="dchip">${p.dayLabel} ${part}</span><span class="dchip g">방문 인증됨</span></div></div>
+      <div style="display:flex;gap:12px;margin-top:auto"><button class="dbtn pri" style="flex:2" type="button" data-act="register">팁 등록하기 · +30P</button><button class="dbtn" type="button" data-act="retry">다시 말하기</button><button class="dbtn" type="button" data-act="skip">건너뛰기</button></div>`;
+  } else {
+    right = `<div class="dcard" style="padding:24px"><span style="font-size:24px;font-weight:700">${st.stage==='done'?'팁이 등록됐어요':'다음에 남겨 주세요'}</span><span class="dmuted" style="font-size:17px;line-height:1.5">${st.stage==='done'?'다른 운전자가 도움됨을 누르면 포인트가 더 쌓여요.':'출차할 때 기어를 D로 바꾸면 출차 팁을 알려드려요.'}</span></div>
+      <span class="dmuted" style="font-size:16px;margin-top:auto">콘솔에서 기어 D를 누르거나 재생·다음 단계를 누르면 출차 화면으로 넘어가요</span>`;
+  }
+  return `${rail('dash')}<section class="side" style="width:560px;padding:44px;gap:22px;background:var(--d-map)" aria-label="주차 완료 기록">
+      <div style="display:flex;align-items:center;gap:16px"><div style="width:72px;height:72px;border-radius:18px;background:var(--ok);color:var(--ink);font-size:40px;font-weight:700;display:flex;align-items:center;justify-content:center">P</div>
+      <div style="display:flex;flex-direction:column;gap:4px"><span class="kicker">DASHHOUR · 자동 기록</span><h1 class="dh1">주차 완료</h1></div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:18px;color:#C9D3E3">반경 진입부터 주차까지</span><span class="big">${ls.min}분</span>
+      <span class="dmuted" style="font-size:17px">예상 ${ls.pred}분 · ${p.dayLabel} ${ls.hour}시대 · ${esc(p.zoneLabel)}</span></div>
+      <div class="dcard" style="background:var(--d-card2);margin-top:auto"><span style="font-size:17px;line-height:1.5;color:#C9D3E3">이 기록은 장소 단위로 익명 집계되어 다음 운전자의 예측에 반영돼요. <b style="color:var(--ok)">+10P</b></span></div>
+    </section>
+    <section class="pane" style="background:var(--d-side);padding:44px 56px;display:flex;flex-direction:column;gap:20px" aria-label="음성 팁">${right}</section>`;
+}
+function scrExiting(){
+  const p=S.place, tip=S.exitTip, best=p.exits.reduce((a,b)=>a[1]<=b[1]?a:b);
+  const exits=p.exits.map(x=>{ const b=x===best; return `<div class="dcard" style="flex:1;${b?'background:var(--accent-soft);border:2px solid var(--accent)':'background:var(--d-card2)'}"><span class="dmuted" style="font-size:15px">${esc(x[0])} 예상</span><span style="font-size:30px;font-weight:700;color:${b?'#7FB0FF':'var(--warn)'}">${x[1]}분</span></div>`; }).join('');
+  return `${rail('dash')}<section class="pane" style="background:var(--d-map);padding:44px 52px;display:flex;flex-direction:column;gap:22px" aria-label="출차 팁">
+      <div style="display:flex;flex-direction:column;gap:4px"><span class="kicker">DASHHOUR · 출차 안내</span><h1 class="dh1">출발하기 전에</h1></div>
+      ${tip?`<div class="dcard" style="background:var(--d-card2);border:1px solid #2E3D58;flex-direction:row;align-items:center;gap:22px;padding:24px 26px"><div class="speaker">${ICON.spk}</div><div style="display:flex;flex-direction:column;gap:6px"><span class="tlabel">출차 팁 · 도움됨 ${tip.help}</span><span style="font-size:24px;font-weight:500;line-height:1.4">“${esc(tip.text)}”</span></div></div>`:tipCard(null)}
+      <div style="display:flex;gap:16px">${exits}<div class="dcard" style="flex:1;background:var(--d-card2)"><span class="dmuted" style="font-size:15px">정산</span><span style="font-size:20px;font-weight:700">${esc(p.pay)}</span></div></div>
+      <div style="display:flex;gap:12px;margin-top:auto"><button class="dbtn pri" type="button" data-act="finish">${esc(best[0])}로 길안내 시작</button><button class="dbtn" style="flex:none;width:160px" type="button" data-act="finish">닫기</button></div>
+    </section>
+    <section class="side" style="width:440px;padding:44px 40px;gap:16px" aria-label="리워드">
+      <span style="font-size:16px;font-weight:700;color:#C9D3E3">오늘의 기여</span>
+      <div class="flrow"><span>자동 측정 참여</span><span style="color:var(--ok)">+${S.today.measure}P</span></div>
+      <div class="flrow"><span>음성 팁 등록</span><span style="color:var(--ok)">+${S.today.tip}P</span></div>
+      <div class="dcard" style="margin-top:auto"><span class="dmuted" style="font-size:15px">이번 달 적립</span><span style="font-size:36px;font-weight:700">${S.points}P</span><span class="dmuted" style="font-size:15px">플레오스 서비스 이용권 · 차량 용품으로 교환 (예정)</span></div>
+    </section>`;
+}
+function settingsSheet(){
+  const seg=(act,val,cur,label)=>`<button class="seg" type="button" data-act="${act}" data-v="${val}" aria-pressed="${cur===val}">${label}</button>`;
+  return `<div class="overlay"><div class="sheet" role="dialog" aria-label="설정">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h1 class="dh1" style="font-size:26px">설정</h1><button class="seg" type="button" data-act="settings-close">닫기</button></div>
+    <div class="optrow"><span>신호 모드</span>${seg('mode','demo','demo','데모 (시나리오 재생)')}</div>
+    <div class="optrow"><span>재생 속도</span>${[1,5,10].map(r=>seg('rate',String(r),S.manual?'':String(S.rate),r+'배')).join('')}${seg('rate','manual',S.manual?'manual':'','수동')}</div>
+    <div class="optrow"><span>차종</span>${seg('car','sedan',S.carType,'세단')}${seg('car','suv',S.carType,'SUV')}${seg('car','ev',S.carType,'전기차')}</div>
+    <div class="optrow"><span>이번 이동 동승자</span>${seg('comp','alone',S.companion,'혼자')}${seg('comp','stroller',S.companion,'유모차 · 짐')}${seg('comp','mobility',S.companion,'거동 불편')}</div>
+    <div class="optrow"><span>데이터</span><button class="seg" type="button" data-act="reset">기록 · 포인트 초기화</button></div>
+  </div></div>`;
+}
+function screenFor(){
+  if(S.viewHome || S.state==='IDLE') return scrHome();
+  return ({PLANNED:scrPlanned,DRIVING:scrDriving,APPROACHING:scrDriving,ENTERING:scrEntering,PARKED:scrParked,EXITING:scrExiting})[S.state]();
+}
+function render(){
+  disp.innerHTML = screenFor() + (S.settings ? settingsSheet() : '');
+  updateBinds(); syncConsole();
+}
+
+// ===================== 바인딩 / 콘솔 =====================
+function updateBinds(){
+  const d = dispNow(), now=performance.now();
+  let hold='대기 중';
+  if(S.state==='APPROACHING') hold = S.lowSince ? `저속 유지 ${((now-S.lowSince)/1000).toFixed(1)} / 3초` : '200m · 15km/h 이하 대기';
+  else if(S.state==='ENTERING') hold = S.pSince ? `P 유지 ${((now-S.pSince)/1000).toFixed(1)} / 5초` : '기어 P 대기';
+  else if(S.state==='PARKED') hold = '기어 D/R 대기';
+  else if(S.state==='DRIVING') hold = '1km 진입 대기';
+  else if(S.state==='PLANNED') hold = "'그대로 출발' 대기";
+  const vals = {state:S.state, clock:d==null?'--:--':hhmm(d), dist:S.dist==null?'-':S.dist.toFixed(1), speed:Math.round(S.speed), gear:S.gear, simt:Math.round(S.simT)+'s', hold};
+  document.querySelectorAll('[data-bind]').forEach(el=>{ const v=vals[el.dataset.bind]; if(v!==undefined && el.textContent!==String(v)) el.textContent=v; });
+  disp.querySelectorAll('[data-need-stop]').forEach(b=>{ if(!b.hasAttribute('data-locked')) b.disabled = S.speed>0 || (b.dataset.act==='vote' && b.textContent.includes('반영')); });
+  const route=document.getElementById('route'), dot=document.getElementById('carDot');
+  if(route && dot && S.place){ const f=Math.min(1,Math.max(0,1-(S.dist??S.place.distKm)/S.place.distKm)); const pt=route.getPointAtLength(route.getTotalLength()*f); dot.setAttribute('cx',pt.x); dot.setAttribute('cy',pt.y); }
+  const spd=document.getElementById('spd'); if(document.activeElement!==spd) spd.value=Math.round(S.speed);
+}
+const scnRow=document.getElementById('scnRow'), rateRow=document.getElementById('rateRow'), gearRow=document.getElementById('gearRow');
+scnRow.innerHTML = Object.values(PLACES).map(p=>`<button class="cbtn" type="button" data-scn="${p.id}">${p.scn} · ${p.short}</button>`).join('');
+rateRow.innerHTML = ['1','5','10','manual'].map(r=>`<button class="cbtn" type="button" data-rate="${r}">${r==='manual'?'수동':r+'배속'}</button>`).join('');
+gearRow.innerHTML = ['P','R','N','D'].map(g=>`<button class="cbtn gear" type="button" data-gear="${g}">${g}</button>`).join('');
+function syncConsole(){
+  scnRow.querySelectorAll('[data-scn]').forEach(b=>b.setAttribute('aria-pressed', String(!!S.place && S.place.id===b.dataset.scn)));
+  rateRow.querySelectorAll('[data-rate]').forEach(b=>b.setAttribute('aria-pressed', String(S.manual ? b.dataset.rate==='manual' : b.dataset.rate===String(S.rate))));
+  gearRow.querySelectorAll('[data-gear]').forEach(b=>b.setAttribute('aria-pressed', String(S.gear===b.dataset.gear)));
+  const pb=document.getElementById('playBtn'); pb.textContent = S.playing?'일시정지':'재생'; pb.disabled = S.manual || !S.place;
+  document.getElementById('stepBtn').disabled = !S.place;
+}
+scnRow.addEventListener('click',e=>{ const b=e.target.closest('[data-scn]'); if(b) loadPlace(b.dataset.scn); });
+rateRow.addEventListener('click',e=>{ const b=e.target.closest('[data-rate]'); if(!b) return; setRate(b.dataset.rate); });
+gearRow.addEventListener('click',e=>{ const b=e.target.closest('[data-gear]'); if(b) setGear(b.dataset.gear,false); });
+document.getElementById('playBtn').addEventListener('click',()=>{ if(!S.place) return; S.playing=!S.playing; syncConsole(); });
+document.getElementById('stepBtn').addEventListener('click',()=>{ S.playing=false; step(); syncConsole(); });
+document.getElementById('spd').addEventListener('input',e=>{ S.speed=+e.target.value; if(S.speed>0 && S.gear==='P'){ S.gear='D'; } syncConsole(); });
+document.getElementById('voice').addEventListener('change',e=>{ S.voice=e.target.checked; if(!S.voice && 'speechSynthesis' in window) speechSynthesis.cancel(); });
+document.getElementById('voiceTest').addEventListener('click',()=>{ const was=S.voice; S.voice=true; speak('대시아워 음성 안내를 시작합니다.'); S.voice=was; voiceStatus(); });
+voiceStatus();
+document.getElementById('openSet').addEventListener('click',()=>{ S.settings=true; render(); });
+function setRate(r){ if(r==='manual'){ S.manual=true; S.playing=false; } else { S.manual=false; S.rate=+r; } render(); }
+
+// ===================== 화면 이벤트 =====================
+disp.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]'); if(!b || b.disabled) return;
+  const a=b.dataset.act, p=S.place;
+  if(a==='home'){ if(S.state!=='IDLE'){ S.viewHome = !S.viewHome; } render(); }
+  else if(a==='pick'){ loadPlace(b.dataset.id); }
+  else if(a==='depart'){ const e=estimate(p); speak(`${p.short}까지 도로 ${e.nav}분, 주차 진입에 약 ${e.wait}분 더 걸려요. 차에서 내리는 시각은 ${hhmm(e.out).replace(':','시 ')}분이에요.`); if(S.manual) step(); else S.playing=true; syncConsole(); }
+  else if(a==='alt'){ S.altOpen=!S.altOpen; render(); }
+  else if(a==='vote'){ const tip=selectTip(p,['floor','car']); if(tip){ tip.help++; S.voted.add(tip.text); } render(); }
+  else if(a==='nexttip'){ const tip=selectTip(p,['floor','car']); if(tip){ S.skip.add(tip.text); } render(); }
+  else if(a==='say'){ const t=p.examples[+b.dataset.i]; S.stt={stage:'recognized',text:t,type:classify(t)}; render(); }
+  else if(a==='register'){ const ty=S.stt.type; TIPS.push({p:p.id,type:ty,text:S.stt.text,help:0,age:0}); S.points+=30; S.today.tip+=30; S.stt={stage:'done'}; addLog('PARKED','PARKED','팁 등록 · '+TYPE_LABEL[ty]+' 유형 · +30P',true); render(); }
+  else if(a==='retry'){ S.stt={stage:'fallback'}; render(); }
+  else if(a==='skip'){ S.stt={stage:'skipped'}; render(); }
+  else if(a==='finish'){ go('IDLE','출차 완료 · 세션 종료'); S.today={measure:0,tip:0,help:0}; }
+  else if(a==='settings'){ S.settings=true; render(); }
+  else if(a==='settings-close'){ S.settings=false; render(); }
+  else if(a==='rate'){ setRate(b.dataset.v); }
+  else if(a==='car'){ S.carType=b.dataset.v; render(); }
+  else if(a==='comp'){ S.companion=b.dataset.v; render(); }
+  else if(a==='reset'){ S.sessions=[]; S.points=0; S.today={measure:0,tip:0,help:0}; S.voted.clear(); addLog(S.state,S.state,'기록 · 포인트 초기화',true); render(); }
+});
+disp.addEventListener('submit',e=>{
+  e.preventDefault(); const inp=document.getElementById('tipText'); const t=(inp&&inp.value||'').trim(); if(!t) return;
+  S.stt={stage:'recognized',text:t,type:classify(t)}; render();
+});
+
+// ===================== 로그 =====================
+const logEl=document.getElementById('log');
+function addLog(from,to,reason,info){
+  const d=dispNow(); const row=document.createElement('div');
+  row.innerHTML = `<time>${d==null?'--:--':hhmm(d)}</time>` + (info ? `<em>${esc(reason)}</em>` : `<span><b>${from} → ${to}</b> <em>· ${esc(reason)}</em></span>`);
+  logEl.prepend(row);
+}
+
+// ===================== 스케일 =====================
+const stage=document.getElementById('stage');
+// 화면을 꽉 채운다: 최소 논리 크기 1280×720을 보장하는 배율 s를 고르고, 남는 폭·높이는 레이아웃이 늘어나 채운다.
+// 1600×720 비율 화면(브라우저 미리보기)에서는 기존과 같은 1600×720이 된다.
+const fit=()=>{
+  const w=stage.clientWidth, h=stage.clientHeight||w*720/1600;
+  if(!w||!h) return;
+  const s=Math.min(w/1280,h/720), nw=Math.round(w/s), nh=Math.round(h/s);
+  disp.style.width=nw+'px'; disp.style.height=nh+'px';
+  disp.style.transform=`scale(${s})`;
+  if(nw!==DW||nh!==DH){ DW=nw; DH=nh; console.log(`fit viewport=${w}x${h} scale=${s.toFixed(3)} logical=${DW}x${DH}`); if(typeof render==='function' && S) render(); }
+};
+new ResizeObserver(fit).observe(stage); fit();
+// ===================== 네이티브(안드로이드) 연결 =====================
+const IS_APP = !!window.DashNative;
+function setSource(real){ S.realGear=real; document.getElementById('srcScn').setAttribute('aria-pressed',String(!real)); document.getElementById('srcCar').setAttribute('aria-pressed',String(real)); }
+window.dashhour = {
+  // 네이티브가 기어 변화를 알려줌: {gear:'P'|'R'|'N'|'D'}
+  vehicle(sig){ if(!sig) return; if(sig.gear && S.realGear && sig.gear!==S.gear){ setGear(sig.gear,false); if(sig.gear!=='P' && S.place && S.speed===0){ const k=[...S.script].reverse().find(k=>k.t<=S.simT); S.speed = (k && k.speed) || (S.state==='PLANNED' ? 40 : 5); } } if(typeof sig.speed==='number' && S.realGear) S.speed=sig.speed; },
+  vehicleStatus(t){ const el=document.getElementById('vehStatus'); if(el) el.textContent=t; if(/연결됨/.test(t) && !S.sourcePicked) setSource(true); },
+  state(){ return S.state; }
+};
+if(IS_APP){
+  document.body.classList.add('app');
+  document.querySelectorAll('.appOnly').forEach(el=>el.hidden=false);
+  const con=document.querySelector('.console'); con.dataset.closed='true';
+  document.getElementById('demoToggle').addEventListener('click',()=>{ con.dataset.closed = con.dataset.closed==='true' ? 'false' : 'true'; });
+  document.getElementById('srcScn').addEventListener('click',()=>{ S.sourcePicked=true; setSource(false); });
+  document.getElementById('srcCar').addEventListener('click',()=>{ S.sourcePicked=true; setSource(true); });
+  setSource(false); fit();
+}
+render();
+addLog('-','IDLE','앱 시작 · 홈 화면');
+})();
+</script>
+
+</body>
+</html>

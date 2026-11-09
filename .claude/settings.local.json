@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell($env:JAVA_HOME=\"$env:USERPROFILE\\\\.jdks\\\\jbr-21.0.11\"; cmd /c \".\\\\gradlew.bat :app:dependencies --configuration debugRuntimeClasspath --console=plain 2>&1\" | Select-Object -Last 40)",
+      "PowerShell($env:JAVA_HOME=\"$env:USERPROFILE\\\\.jdks\\\\jbr-21.0.11\"; cmd /c \".\\\\gradlew.bat :app:dependencies --configuration debugRuntimeClasspath --console=plain 2>&1\" | Select-Object -Last 25)",
+      "PowerShell($env:JAVA_HOME=\"$env:USERPROFILE\\\\.jdks\\\\jbr-21.0.11\"; cmd /c \".\\\\gradlew.bat assembleDebug --console=plain 2>&1\" | Select-String -Pattern 'error|e: |w: |FAILED|BUILD|What went wrong' -Context 0,3 | Select -Last 40 | % { $_.ToString\\(\\) })"
+    ]
+  }
+}
