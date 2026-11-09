@@ -38,7 +38,7 @@
 
 ## 설치와 테스트 (심사용)
 1. Pleos Connect Emulator v2.1.0 (API 34)을 실행한다.
-2. [Releases](../../releases)에서 `DASHHOUR_v0.1.apk`를 받아 에뮬레이터 화면에 끌어다 놓는다.
+2. [`apk/DASHHOUR_DASHHOUR_release.apk`](apk/DASHHOUR_DASHHOUR_release.apk)를 받아 에뮬레이터 화면에 끌어다 놓는다.
 3. 앱 목록에서 DASHHOUR를 열고, 오른쪽 아래 **데모** → 신호 출처 **차량 (Pleos)** → 시나리오 **A**를 고른다.
 4. Virtual Console에서 기어 **D → P(5초) → D** 순서로 바꾸면 주차 완료(27분 측정)와 출차 팁이 나온다.
 
@@ -55,3 +55,5 @@
 - Android Studio, Android SDK 35, JDK 17, minSdk 28
 - Pleos Connect Emulator v2.1.0 (API 34, Automotive)
 - 앱 우측 하단 '데모' 버튼으로 시나리오 재생·기어 조작 콘솔을 엽니다.
+
+© 2026 DASHHOUR. All rights reserved. 공모전 출품작으로 무단 사용·배포를 금합니다.

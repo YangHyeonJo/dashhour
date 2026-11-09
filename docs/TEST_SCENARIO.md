@@ -7,12 +7,12 @@ Pleos Connect 에뮬레이터에서 약 10분이면 핵심 동작을 확인할 �
 | 항목 | 내용 |
 | --- | --- |
 | 에뮬레이터 | Pleos Connect Emulator v2.1.0 (API 34, Automotive) |
-| 설치 파일 | `DASHHOUR_v0.1.apk` (GitHub Releases) |
+| 설치 파일 | `apk/DASHHOUR_DASHHOUR_release.apk` (저장소 내) |
 | 소요 시간 | 시나리오 1 약 5분, 전체 약 10분 |
 | 필요 조작 | 에뮬레이터 Virtual Console의 기어 변경 (P/R/N/D) |
 
 1. 에뮬레이터를 켜고 Pleos 홈 화면이 뜨길 기다린다.
-2. APK 파일을 에뮬레이터 화면 위로 끌어다 놓는다. 또는 `adb install DASHHOUR_v0.1.apk`.
+2. APK 파일을 에뮬레이터 화면 위로 끌어다 놓는다. 또는 `adb install apk/DASHHOUR_DASHHOUR_release.apk`.
 3. 하단 바의 ⊞(앱 목록) → **DASHHOUR**.
 4. 시작 전 기어가 **P**인지 확인한다 (화면 왼쪽 위 P R N D 표시).
 
